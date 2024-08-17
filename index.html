@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roulette Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: #2c3e50;
+        }
+
+        #notification {
+            position: absolute;
+            top: 20px;
+            background-color: #27ae60;
+            color: white;
+            border-radius: 5px;
+            font-size: 20px;
+            display: none;
+            z-index: 1000;
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 100%;
+        }
+
+        #rouletteCanvas {
+            display: block;
+            background-color: #34495e;
+        }
+
+        #board-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        #bettingBoard {
+            display: grid;
+            grid-template-columns: repeat(13, 1fr);
+            grid-gap: 2px;
+            margin: auto;
+            background-color: #27ae60;
+            padding: 10px;
+            box-sizing: border-box;
+            border-radius: 10px;
+        }
+
+        .betting-cell {
+            box-sizing: border-box;
+            padding: 6px;
+            text-align: center;
+            background-color: #ecf0f1;
+            color: #2c3e50;
+            font-size: 14px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .betting-cell.red {
+            background-color: #e74c3c;
+            color: #ffffff;
+        }
+
+        .betting-cell.black {
+            background-color: #2c3e50;
+            color: #ffffff;
+        }
+
+        .betting-cell.green {
+            background-color: #27ae60;
+            color: #ffffff;
+            grid-column: span 2;
+        }
+
+        .betting-cell.outside-bet {
+            background-color: #7f8c8d;
+            color: #ffffff;
+            grid-column: span 2;
+        }
+
+        .betting-cell.selected {
+            border: 2px solid yellow;
+        }
+
+        #ui-controls {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #betAmount {
+            margin-top: 10px;
+            padding: 10px;
+            width: 100px;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        #placeBetButton,
+        #startButton,
+        #resetButton {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #segmentDisplay {
+            margin-top: 10px;
+            color: white;
+            font-size: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="notification">You win $100!</div>
+    <div id="canvas-container">
+        <canvas id="rouletteCanvas"></canvas>
+    </div>
+    <div id="board-container">
+        <div id="bettingBoard"></div>
+    </div>
+    <div id="ui-controls">
+        <input type="number" id="betAmount" placeholder="Bet Amount" min="1">
+        <button id="placeBetButton">Place Bet</button>
+        <button id="startButton">Start Simulation</button>
+        <button id="resetButton">Reset Simulation</button>
+        <div id="segmentDisplay">Segment: -</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('rouletteCanvas');
+        const ctx = canvas.getContext('2d');
+        const notification = document.getElementById('notification');
+        const betAmountInput = document.getElementById('betAmount');
+        const bettingBoard = document.getElementById('bettingBoard');
+        let selectedBet = null;
+        let selectedBetType = null;
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight * 0.5;
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const wheelRadius = Math.min(centerX, centerY) - 50;
+        const ballRadius = 10;
+
+        // Segment mapping consistent with the backend
+        const segments = [
+            { number: 32, color: 'red' }, { number: 15, color: 'black' }, { number: 19, color: 'red' },
+            { number: 4, color: 'black' }, { number: 21, color: 'red' }, { number: 2, color: 'black' },
+            { number: 25, color: 'red' }, { number: 17, color: 'black' }, { number: 34, color: 'red' },
+            { number: 6, color: 'black' }, { number: 27, color: 'red' }, { number: 13, color: 'black' },
+            { number: 36, color: 'red' }, { number: 11, color: 'black' }, { number: 30, color: 'red' },
+            { number: 8, color: 'black' }, { number: 23, color: 'red' }, { number: 10, color: 'black' },
+            { number: 5, color: 'red' }, { number: 24, color: 'black' }, { number: 16, color: 'red' },
+            { number: 33, color: 'black' }, { number: 1, color: 'red' }, { number: 20, color: 'black' },
+            { number: 14, color: 'red' }, { number: 31, color: 'black' }, { number: 9, color: 'red' },
+            { number: 22, color: 'black' }, { number: 18, color: 'red' }, { number: 29, color: 'black' },
+            { number: 7, color: 'red' }, { number: 28, color: 'black' }, { number: 12, color: 'red' },
+            { number: 35, color: 'black' }, { number: 3, color: 'red' }, { number: 26, color: 'black' },
+            { number: 0, color: 'green' }
+        ];
+
+        const segmentAngle = (2 * Math.PI) / segments.length;
+
+        // Draw the roulette wheel with segments
+        function drawWheel() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            segments.forEach((segment, index) => {
+                const startAngle = index * segmentAngle;
+                const endAngle = startAngle + segmentAngle;
+
+                // Draw the segment
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.arc(centerX, centerY, wheelRadius, startAngle, endAngle);
+                ctx.fillStyle = segment.color;
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+
+                // Draw the segment number
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(startAngle + segmentAngle / 2);
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '14px Arial';
+                ctx.fillText(segment.number, wheelRadius - 30, 5);
+                ctx.restore();
+            });
+        }
+
+        // Draw the ball
+        function drawBall(angle) {
+            const x = centerX + wheelRadius * Math.cos(angle);
+            const y = centerY + wheelRadius * Math.sin(angle);
+
+            ctx.beginPath();
+            ctx.arc(x, y, ballRadius, 0, 2 * Math.PI, false);
+            ctx.fillStyle = '#ecf0f1';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#2c3e50';
+            ctx.stroke();
+        }
+
+        // Create betting board
+        function createBettingBoard() {
+            bettingBoard.innerHTML = ''; // Clear the board
+
+            // Create number cells
+            segments.forEach(segment => {
+                const cell = document.createElement('div');
+                cell.classList.add('betting-cell');
+                cell.textContent = segment.number;
+
+                if (segment.color === 'red') {
+                    cell.classList.add('red');
+                } else if (segment.color === 'black') {
+                    cell.classList.add('black');
+                } else if (segment.color === 'green') {
+                    cell.classList.add('green');
+                }
+
+                cell.addEventListener('click', () => {
+                    selectBet('number', segment.number, cell);
+                });
+
+                bettingBoard.appendChild(cell);
+            });
+
+            // Create outside bet cells
+            const outsideBets = [
+                { label: '1st 12', type: 'dozen', value: '1st 12' },
+                { label: '2nd 12', type: 'dozen', value: '2nd 12' },
+                { label: '3rd 12', type: 'dozen', value: '3rd 12' },
+                { label: '1-18', type: 'half', value: '1-18' },
+                { label: 'EVEN', type: 'even-odd', value: 'even' },
+                { label: 'RED', type: 'color', value: 'red', color: 'red' },
+                { label: 'BLACK', type: 'color', value: 'black', color: 'black' },
+                { label: 'ODD', type: 'even-odd', value: 'odd' },
+                { label: '19-36', type: 'half', value: '19-36' }
+            ];
+
+            outsideBets.forEach(bet => {
+                const cell = document.createElement('div');
+                cell.classList.add('betting-cell', 'outside-bet');
+                cell.textContent = bet.label;
+
+                if (bet.color === 'red') {
+                    cell.style.backgroundColor = '#e74c3c';
+                    cell.style.color = '#ffffff';
+                } else if (bet.color === 'black') {
+                    cell.style.backgroundColor = '#2c3e50';
+                    cell.style.color = '#ffffff';
+                }
+
+                cell.addEventListener('click', () => {
+                    selectBet(bet.type, bet.value, cell);
+                });
+
+                bettingBoard.appendChild(cell);
+            });
+        }
+
+        // Select a bet
+        function selectBet(type, value, cell) {
+            // Deselect the previous bet
+            if (selectedBet) {
+                selectedBet.classList.remove('selected');
+            }
+
+            // Select the new bet
+            selectedBet = cell;
+            selectedBetType = type;
+            selectedBet.classList.add('selected');
+        }
+
+        // WebSocket connection
+        const ws = new WebSocket('ws://localhost:3003');
+
+        ws.onopen = () => {
+            console.log('Connected to WebSocket server');
+        };
+
+        ws.onmessage = (message) => {
+            const data = JSON.parse(message.data);
+            if (data.message === 'Ball has stopped') {
+                console.log(`Final Segment: ${data.finalSegment} (${data.color})`);
+                document.getElementById('segmentDisplay').textContent = `Final Segment: ${data.finalSegment} (${data.color})`;
+            } else if (data.message === 'Bet result') {
+                const resultText = data.winnings >= 0
+                    ? `You win $${data.winnings}!`
+                    : `You lose $${Math.abs(data.winnings)}.`;
+                showNotification(resultText, data.winnings >= 0 ? '#27ae60' : '#e74c3c');
+            } else {
+                const angle = parseFloat(data.angle);
+                drawWheel();
+                drawBall(angle);
+                document.getElementById('segmentDisplay').textContent = `Segment: ${data.segment} (${data.color})`;
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('Disconnected from WebSocket server');
+        };
+
+        // UI Controls
+        document.getElementById('placeBetButton').addEventListener('click', () => {
+            if (ws.readyState === WebSocket.OPEN && selectedBet && selectedBetType) {
+                const betAmount = parseInt(betAmountInput.value);
+                if (betAmount > 0) {
+                    ws.send(JSON.stringify({
+                        type: 'placeBet',
+                        betType: selectedBetType,
+                        betValue: selectedBet.textContent,
+                        amount: betAmount
+                    }));
+                    console.log(`Placed bet of $${betAmount} on ${selectedBetType} ${selectedBet.textContent}`);
+                } else {
+                    showNotification('Please enter a valid bet amount.', '#e74c3c');
+                }
+            }
+        });
+
+        document.getElementById('startButton').addEventListener('click', () => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'startSimulation' }));
+            }
+        });
+
+        document.getElementById('resetButton').addEventListener('click', () => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'resetSimulation' }));
+            }
+        });
+
+        // Function to show notification
+        function showNotification(message, color) {
+            notification.textContent = message;
+            notification.style.backgroundColor = color;
+            notification.style.display = 'block';
+
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight * 0.5;
+            drawWheel();
+        });
+
+        drawWheel(); // Initial draw
+        createBettingBoard(); // Create betting board
+    </script>
+</body>
+
+</html>
