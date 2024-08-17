@@ -12,7 +12,7 @@ const wss = new WebSocket.Server({ server });
 
 let currentSimulationInterval = null; // Store the current simulation interval
 let simulationInProgress = false; // Track if the simulation is in progress
-let bets = []; // Array to store bets placed by users
+let bets = new Map(); // Map to store bets with WebSocket as the key
 
 // Mapping of segment index to roulette number and color (European roulette)
 const segmentMap = [
@@ -145,13 +145,35 @@ function broadcastFinalResult(segmentIndex) {
         finalSegment,
         color: finalColor
     };
+
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(finalResult));
+            const bet = bets.get(client);
+            if (bet) {
+                let winnings = 0;
+                if (bet.type === 'number' && bet.value === finalSegment) {
+                    winnings = bet.amount * 35; // Payout for number bet
+                } else if (bet.type === 'color' && bet.value === finalColor) {
+                    winnings = bet.amount * 2; // Payout for color bet
+                } else if (bet.type === 'even-odd' && bet.value === (finalSegment % 2 === 0 ? 'even' : 'odd')) {
+                    winnings = bet.amount * 2; // Payout for even/odd bet
+                } else {
+                    winnings = -bet.amount; // Loss
+                }
+
+                console.log(`User wins: ${winnings}`);  // Debugging Output
+
+                client.send(JSON.stringify({
+                    message: 'Bet result',
+                    bet,
+                    winnings
+                }));
+                bets.delete(client);
+            }
         }
     });
 
-    calculateWinnings(finalSegment, finalColor);
     simulationInProgress = false;
 }
 
@@ -175,40 +197,13 @@ function simulateRouletteWithWebSocket() {
     }, deltaTime * 1000);
 }
 
-function calculateWinnings(finalSegment, finalColor) {
-    bets.forEach(bet => {
-        let winnings = 0;
-        if (bet.type === 'number' && bet.value === finalSegment) {
-            winnings = bet.amount * 35; // Payout for number bet
-        } else if (bet.type === 'color' && bet.value === finalColor) {
-            winnings = bet.amount * 2; // Payout for color bet
-        } else if (bet.type === 'even-odd' && bet.value === (finalSegment % 2 === 0 ? 'even' : 'odd')) {
-            winnings = bet.amount * 2; // Payout for even/odd bet
-        } else {
-            winnings = -bet.amount; // Loss
-        }
-
-        wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN && client.id === bet.userId) {
-                client.send(JSON.stringify({
-                    message: 'Bet result',
-                    bet,
-                    winnings
-                }));
-            }
-        });
-    });
-
-    bets = [];
-}
-
 function resetSimulation() {
     if (currentSimulationInterval) {
         clearInterval(currentSimulationInterval);
         currentSimulationInterval = null;
     }
     simulationInProgress = false;
-    bets = [];
+    bets.clear(); // Clear all bets on reset
 }
 
 wss.on('connection', (ws) => {
@@ -218,13 +213,11 @@ wss.on('connection', (ws) => {
         const data = JSON.parse(message);
         if (data.type === 'startSimulation') {
             console.log('Starting roulette simulation');
-            resetSimulation();
             simulateRouletteWithWebSocket();
         } else if (data.type === 'resetSimulation') {
             resetSimulation();
         } else if (data.type === 'placeBet') {
-            bets.push({
-                userId: ws.id,
+            bets.set(ws, {
                 type: data.betType,
                 value: data.betValue,
                 amount: data.amount
@@ -235,9 +228,8 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         console.log('Client disconnected');
+        bets.delete(ws); // Remove bets for the disconnected client
     });
-
-    ws.id = Date.now().toString(); // Assign a unique ID to each client
 });
 
 server.listen(PORT, () => {

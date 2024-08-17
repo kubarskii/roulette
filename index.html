@@ -319,7 +319,7 @@
                     ws.send(JSON.stringify({
                         type: 'placeBet',
                         betType: selectedBetType,
-                        betValue: selectedBet.textContent,
+                        betValue: selectedBet.textContent.toLowerCase(),
                         amount: betAmount
                     }));
                     console.log(`Placed bet of $${betAmount} on ${selectedBetType} ${selectedBet.textContent}`);
