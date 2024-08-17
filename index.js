@@ -31,148 +31,150 @@ const segmentMap = [
     { number: 0, color: 'green' }
 ];
 
-// Class to simulate the roulette wheel
+function getRandomValueInRange(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+// Linear interpolation function
+function lerp(start, end, t) {
+    return start * (1 - t) + end * t;
+}
+
 class Roulette {
-    constructor(radius, initialAngularVelocity, friction) {
+    constructor(radius) {
         this.radius = radius;
-        this.angularVelocity = initialAngularVelocity; // rad/s
-        this.friction = friction; // deceleration in rad/s^2
-        this.angle = 0; // Current angle of the roulette
+        this.angularVelocity = 0;  // rad/s
+        this.friction = 0;  // Deceleration rate
+        this.angle = 0;  // Start at 0 radians
     }
 
-    // Update the angle based on time elapsed
+    start() {
+        this.angularVelocity = getRandomValueInRange(4, 5);  // Randomize initial speed
+        this.friction = getRandomValueInRange(0.1, 0.2);  // Randomize friction
+    }
+
     update(deltaTime) {
-        this.angle += this.angularVelocity * deltaTime;
-        this.angularVelocity -= this.friction * deltaTime;
+        this.angle = (this.angle + this.angularVelocity * deltaTime) % (2 * Math.PI);  // Update angle
+        this.angularVelocity = Math.max(0, this.angularVelocity - this.friction * deltaTime);  // Apply friction
+    }
 
-        if (this.angularVelocity < 0) {
-            this.angularVelocity = 0; // Stop the wheel if it slows down completely
-        }
+    isStopped() {
+        return this.angularVelocity <= 0;
     }
 }
 
-// Class to simulate the roulette ball
 class Ball {
-    constructor(radius, initialVelocity, rouletteRadius) {
+    constructor(radius, rouletteRadius) {
         this.radius = radius;
-        this.velocity = initialVelocity; // m/s
+        this.velocity = 0;  // m/s
+        this.friction = 0;  // Deceleration rate specific to the ball
+        this.angleRelativeToTable = 0;  // Start at 0 radians relative to the table
         this.rouletteRadius = rouletteRadius;
-        this.angle = 0; // Current angle of the ball on the roulette wheel
-        this.position = 0; // Linear position along the circumference
-        this.obstacles = this.generateObstacles(); // Generate random obstacles
-        this.initialSlowdownThreshold = initialVelocity * 0.3; // Threshold below which the ball starts encountering obstacles
+        this.hasFallen = false;  // Flag to check if the ball has fallen into a segment
+        this.smoothingFactor = 0.1;  // Smoothing factor for angle transition
     }
 
-    // Generate random obstacles around the roulette wheel
-    generateObstacles() {
-        const obstacles = [];
-        const numberOfObstacles = 5;
-        for (let i = 0; i < numberOfObstacles; i++) {
-            obstacles.push({
-                position: Math.random() * 2 * Math.PI, // Random position on the wheel
-                effect: Math.random() * 0.1 + 0.05 // Effect on velocity (5% to 15%)
-            });
-        }
-        return obstacles;
+    start() {
+        this.velocity = getRandomValueInRange(4, 5);  // Randomize initial ball speed
+        this.friction = getRandomValueInRange(0.3, 0.4);  // Randomize ball friction
+        this.hasFallen = false;  // Reset the flag when starting
     }
 
-    // Check if the ball hits an obstacle
-    checkForObstacles() {
-        if (this.velocity > this.initialSlowdownThreshold) {
-            return; // No obstacles until the ball slows down enough
-        }
+    update(deltaTime, roulette) {
+        if (this.velocity > 0) {
+            this.angleRelativeToTable = (this.angleRelativeToTable + this.velocity * deltaTime / this.rouletteRadius) % (2 * Math.PI);  // Update angle relative to table
+            this.velocity = Math.max(0, this.velocity - this.friction * deltaTime);  // Apply deceleration
 
-        this.obstacles.forEach(obstacle => {
-            const distance = Math.abs(this.angle - obstacle.position);
-            if (distance < 0.1) { // Ball hits the obstacle
-                this.velocity *= (1 - obstacle.effect); // Decrease velocity
-                this.angle += 0.05; // Simulate a small jump by changing angle slightly
+            if (this.velocity < 0.1) {  // Near stopping
+                // Reduce velocity even more smoothly
+                this.velocity *= 0.9;
             }
-        });
-    }
 
-    // Update the ball's position based on time elapsed
-    update(deltaTime, rouletteAngularVelocity) {
-        // Ball moves along the circumference of the roulette wheel
-        this.position += this.velocity * deltaTime;
-
-        // Calculate angular displacement due to the roulette wheel's rotation
-        this.angle = this.position / this.rouletteRadius - rouletteAngularVelocity * deltaTime;
-
-        // Apply reduced friction to decelerate the ball more slowly initially
-        if (this.velocity > this.initialSlowdownThreshold) {
-            this.velocity -= 0.3 * this.velocity * deltaTime; // Slow deceleration at high speeds
-        } else {
-            this.velocity -= 0.8 * this.velocity * deltaTime; // Faster deceleration at lower speeds
-        }
-
-        // Check for obstacles and apply their effects
-        this.checkForObstacles();
-
-        if (this.velocity < 0) {
-            this.velocity = 0; // Stop the ball if it slows down completely
+            if (this.velocity === 0) {
+                this.hasFallen = true;
+                console.log(this.angleRelativeToTable, roulette.angle);
+                // Smoothly transition the angle to align with the roulette's angle
+                const targetAngle = (this.angleRelativeToTable + roulette.angle) % (2 * Math.PI);
+                this.angleRelativeToTable = lerp(this.angleRelativeToTable, targetAngle, this.smoothingFactor);
+            }
+        } else if (this.hasFallen) {
+            // Once the ball has fallen, it moves with the roulette wheel
+            this.angleRelativeToTable = (this.angleRelativeToTable + roulette.angularVelocity * deltaTime) % (2 * Math.PI);
         }
     }
 
-    // Calculate the segment based on the ball's angle
-    getSegment() {
-        const segments = 37; // Number of segments (0-36)
-        const anglePerSegment = 2 * Math.PI / segments; // Angle per segment in radians
-        const normalizedAngle = (this.angle + 2 * Math.PI) % (2 * Math.PI); // Normalize angle between 0 and 2π
-        return Math.floor(normalizedAngle / anglePerSegment);
+    isStopped() {
+        return this.velocity <= 0 && this.hasFallen;
+    }
+
+    getAngleRelativeToRoulette(rouletteAngle) {
+        // Calculate the ball's angle relative to the moving roulette wheel
+        return (this.angleRelativeToTable - rouletteAngle + 2 * Math.PI) % (2 * Math.PI);
+    }
+
+    calculateSegment(rouletteAngle) {
+        const anglePerSegment = 2 * Math.PI / segmentMap.length;
+        const angleRelativeToRoulette = this.getAngleRelativeToRoulette(rouletteAngle);
+        return Math.floor(angleRelativeToRoulette / anglePerSegment);
     }
 }
 
-// Broadcast the current ball position and segment to all connected clients
-function broadcastBallPosition(ball) {
-    const segmentIndex = ball.getSegment();
-    const velocity = ball.velocity.toFixed(2);
-    const ballPosition = {
-        angle: ball.angle.toFixed(2), // Angular position of the ball on the wheel
-        velocity, // Current speed of the ball
-        segment: segmentMap[segmentIndex].number, // Current segment value based on segment index
-        color: segmentMap[segmentIndex].color // Current segment color
+function broadcastPositions(roulette, ball) {
+    const segmentIndex = ball.calculateSegment(roulette.angle);
+    const data = {
+        rouletteAngle: roulette.angle,  // Send exact angle of roulette
+        ballAngleRelativeToTable: ball.angleRelativeToTable,  // Send exact angle of ball relative to table
+        ballAngleRelativeToRoulette: ball.getAngleRelativeToRoulette(roulette.angle),  // Send exact angle of ball relative to roulette
+        velocity: ball.velocity.toFixed(2),
+        segment: segmentMap[segmentIndex]?.number || "Unknown",
+        color: segmentMap[segmentIndex]?.color || "Unknown"
     };
 
-    if (Number(velocity) > 0) {
-        wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify(ballPosition));
-            }
-        });
-    } else {
-        broadcastFinalResult(ball);
-        const finalSegment = segmentMap[segmentIndex].number;
-        const finalColor = segmentMap[segmentIndex].color;
-        calculateWinnings(finalSegment, finalColor); // Calculate and broadcast winnings
-        calculateWinnings
-    }
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(data));
+        }
+    });
 }
 
-// Broadcast the final result when the ball stops and calculate winnings
-function broadcastFinalResult(ball) {
-    if (simulationInProgress) {
-        const segmentIndex = ball.getSegment();
-        const finalSegment = segmentMap[segmentIndex].number;
-        const finalColor = segmentMap[segmentIndex].color;
+function broadcastFinalResult(segmentIndex) {
+    const finalSegment = segmentMap[segmentIndex]?.number || "Unknown";
+    const finalColor = segmentMap[segmentIndex]?.color || "Unknown";
+    const finalResult = {
+        message: 'Ball has stopped',
+        finalSegment,
+        color: finalColor
+    };
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(finalResult));
+        }
+    });
 
-        const finalResult = {
-            message: 'Ball has stopped',
-            finalSegment,
-            color: finalColor
-        };
-
-        wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify(finalResult));
-            }
-        });
-
-        simulationInProgress = false; // Mark the simulation as complete
-    }
+    calculateWinnings(finalSegment, finalColor);
+    simulationInProgress = false;
 }
 
-// Calculate winnings based on the result and notify users
+const roulette = new Roulette(0.5);  // Define roulette radius
+const ball = new Ball(0.02, roulette.radius);  // Define ball radius and associate with roulette
+
+function simulateRouletteWithWebSocket() {
+    roulette.start();
+    ball.start();
+    const deltaTime = 0.01;  // Time step for the simulation
+    simulationInProgress = true;
+    currentSimulationInterval = setInterval(() => {
+        roulette.update(deltaTime);
+        ball.update(deltaTime, roulette);
+        broadcastPositions(roulette, ball);
+        if (roulette.isStopped() && ball.isStopped()) {
+            broadcastFinalResult(ball.calculateSegment(roulette.angle));
+            clearInterval(currentSimulationInterval);
+            currentSimulationInterval = null;
+        }
+    }, deltaTime * 1000);
+}
+
 function calculateWinnings(finalSegment, finalColor) {
     bets.forEach(bet => {
         let winnings = 0;
@@ -186,55 +188,29 @@ function calculateWinnings(finalSegment, finalColor) {
             winnings = -bet.amount; // Loss
         }
 
-        // Notify user of their winnings or losses
         wss.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN && client.id === bet.userId) {
                 client.send(JSON.stringify({
                     message: 'Bet result',
-                    bet: bet,
-                    winnings: winnings
+                    bet,
+                    winnings
                 }));
             }
         });
     });
 
-    // Clear bets after processing
     bets = [];
 }
 
-// Function to simulate the roulette and ball movement, broadcasting the ball position
-function simulateRouletteWithWebSocket() {
-    const roulette = new Roulette(0.5, 20, 0.01); // High initial speed, low friction
-    const ball = new Ball(0.02, 10, roulette.radius); // High initial ball speed
-
-    let timeElapsed = 0;
-    const deltaTime = 0.01; // Simulate in 10 ms time steps
-    simulationInProgress = true;
-
-    currentSimulationInterval = setInterval(() => {
-        roulette.update(deltaTime);
-        ball.update(deltaTime, roulette.angularVelocity);
-        timeElapsed += deltaTime;
-        broadcastBallPosition(ball);
-        if (ball.velocity <= 0) {
-            clearInterval(currentSimulationInterval);
-            currentSimulationInterval = null; // Clear the interval and set to null
-        }
-    }, deltaTime * 1000); // Convert deltaTime to milliseconds for setInterval
-}
-
-// Reset the simulation
 function resetSimulation() {
     if (currentSimulationInterval) {
-        clearInterval(currentSimulationInterval); // Clear the current simulation interval if running
-        currentSimulationInterval = null; // Set to null to indicate no simulation is running
+        clearInterval(currentSimulationInterval);
+        currentSimulationInterval = null;
     }
-    simulationInProgress = false; // Reset the simulation status
-    bets = []; // Clear any bets placed
-    console.log('Roulette simulation reset.');
+    simulationInProgress = false;
+    bets = [];
 }
 
-// Handle WebSocket connections
 wss.on('connection', (ws) => {
     console.log('New client connected');
 
@@ -242,12 +218,11 @@ wss.on('connection', (ws) => {
         const data = JSON.parse(message);
         if (data.type === 'startSimulation') {
             console.log('Starting roulette simulation');
-            resetSimulation(); // Reset any existing simulation before starting a new one
+            resetSimulation();
             simulateRouletteWithWebSocket();
         } else if (data.type === 'resetSimulation') {
             resetSimulation();
         } else if (data.type === 'placeBet') {
-            // Place a bet
             bets.push({
                 userId: ws.id,
                 type: data.betType,
@@ -262,11 +237,9 @@ wss.on('connection', (ws) => {
         console.log('Client disconnected');
     });
 
-    // Assign a unique ID to each client
-    ws.id = Date.now().toString(); // Use timestamp as a unique identifier
+    ws.id = Date.now().toString(); // Assign a unique ID to each client
 });
 
-// Start the server
 server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });

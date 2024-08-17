@@ -21,6 +21,7 @@
             top: 20px;
             background-color: #27ae60;
             color: white;
+            padding: 10px 20px;
             border-radius: 5px;
             font-size: 20px;
             display: none;
@@ -51,13 +52,10 @@
             margin: auto;
             background-color: #27ae60;
             padding: 10px;
-            box-sizing: border-box;
             border-radius: 10px;
         }
 
         .betting-cell {
-            box-sizing: border-box;
-            padding: 6px;
             text-align: center;
             background-color: #ecf0f1;
             color: #2c3e50;
@@ -179,26 +177,23 @@
 
         const segmentAngle = (2 * Math.PI) / segments.length;
 
-        // Draw the roulette wheel with segments
-        function drawWheel() {
+        function drawWheel(rouletteAngle) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(rouletteAngle);
             segments.forEach((segment, index) => {
                 const startAngle = index * segmentAngle;
                 const endAngle = startAngle + segmentAngle;
-
-                // Draw the segment
                 ctx.beginPath();
-                ctx.moveTo(centerX, centerY);
-                ctx.arc(centerX, centerY, wheelRadius, startAngle, endAngle);
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, wheelRadius, startAngle, endAngle);
                 ctx.fillStyle = segment.color;
                 ctx.fill();
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = '#ffffff';
                 ctx.stroke();
-
-                // Draw the segment number
                 ctx.save();
-                ctx.translate(centerX, centerY);
                 ctx.rotate(startAngle + segmentAngle / 2);
                 ctx.textAlign = 'center';
                 ctx.fillStyle = '#ffffff';
@@ -206,13 +201,14 @@
                 ctx.fillText(segment.number, wheelRadius - 30, 5);
                 ctx.restore();
             });
+            ctx.restore();
         }
 
-        // Draw the ball
-        function drawBall(angle) {
-            const x = centerX + wheelRadius * Math.cos(angle);
-            const y = centerY + wheelRadius * Math.sin(angle);
-
+        function drawBall(ballAngleRelativeToTable, ballAngleRelativeToRoulette) {
+            // Calculate the ball's position relative to the table and roulette
+            const relativeBallAngle = ballAngleRelativeToTable; // Ball's actual position on the table
+            const x = centerX + wheelRadius * Math.cos(relativeBallAngle);
+            const y = centerY + wheelRadius * Math.sin(relativeBallAngle);
             ctx.beginPath();
             ctx.arc(x, y, ballRadius, 0, 2 * Math.PI, false);
             ctx.fillStyle = '#ecf0f1';
@@ -222,11 +218,8 @@
             ctx.stroke();
         }
 
-        // Create betting board
         function createBettingBoard() {
-            bettingBoard.innerHTML = ''; // Clear the board
-
-            // Create number cells
+            bettingBoard.innerHTML = '';
             segments.forEach(segment => {
                 const cell = document.createElement('div');
                 cell.classList.add('betting-cell');
@@ -239,15 +232,12 @@
                 } else if (segment.color === 'green') {
                     cell.classList.add('green');
                 }
-
                 cell.addEventListener('click', () => {
                     selectBet('number', segment.number, cell);
                 });
-
                 bettingBoard.appendChild(cell);
             });
 
-            // Create outside bet cells
             const outsideBets = [
                 { label: '1st 12', type: 'dozen', value: '1st 12' },
                 { label: '2nd 12', type: 'dozen', value: '2nd 12' },
@@ -283,12 +273,9 @@
 
         // Select a bet
         function selectBet(type, value, cell) {
-            // Deselect the previous bet
             if (selectedBet) {
                 selectedBet.classList.remove('selected');
             }
-
-            // Select the new bet
             selectedBet = cell;
             selectedBetType = type;
             selectedBet.classList.add('selected');
@@ -303,18 +290,19 @@
 
         ws.onmessage = (message) => {
             const data = JSON.parse(message.data);
+
             if (data.message === 'Ball has stopped') {
                 console.log(`Final Segment: ${data.finalSegment} (${data.color})`);
                 document.getElementById('segmentDisplay').textContent = `Final Segment: ${data.finalSegment} (${data.color})`;
+                showNotification(`Result: ${data.finalSegment} (${data.color})`, '#27ae60');
             } else if (data.message === 'Bet result') {
                 const resultText = data.winnings >= 0
                     ? `You win $${data.winnings}!`
                     : `You lose $${Math.abs(data.winnings)}.`;
                 showNotification(resultText, data.winnings >= 0 ? '#27ae60' : '#e74c3c');
             } else {
-                const angle = parseFloat(data.angle);
-                drawWheel();
-                drawBall(angle);
+                drawWheel(data.rouletteAngle);  // Use the roulette angle directly from backend
+                drawBall(data.ballAngleRelativeToTable, data.ballAngleRelativeToRoulette);  // Use ball angles directly from backend
                 document.getElementById('segmentDisplay').textContent = `Segment: ${data.segment} (${data.color})`;
             }
         };
@@ -368,10 +356,10 @@
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight * 0.5;
-            drawWheel();
+            drawWheel(0); // Redraw with default angle
         });
 
-        drawWheel(); // Initial draw
+        drawWheel(0); // Initial draw with a default angle of 0
         createBettingBoard(); // Create betting board
     </script>
 </body>
