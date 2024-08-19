@@ -13,6 +13,7 @@ const wss = new WebSocket.Server({ server });
 let currentSimulationInterval = null;
 let bets = new Map();
 
+// Mapping of segment index to roulette number and color (European roulette)
 const segmentMap = [
     { number: 32, color: 'red' }, { number: 15, color: 'black' }, { number: 19, color: 'red' },
     { number: 4, color: 'black' }, { number: 21, color: 'red' }, { number: 2, color: 'black' },
@@ -30,26 +31,34 @@ const segmentMap = [
 ];
 
 /**
- * 
+ * Broadcasts the current positions of the roulette and ball.
  * @param {Roulette} roulette 
  * @param {Ball} ball 
  */
 function broadcastPositions(roulette, ball) {
     const segmentIndex = ball.calculateSegment(roulette);
     const data = {
-        rouletteAngle: roulette.angle,  // Send exact angle of roulette
-        angle: ball.getFinalAngle(roulette),  // Send exact angle of ball relative to roulette
+        rouletteAngle: roulette.angle,
+        angle: ball.getFinalAngle(roulette),
         velocity: ball.velocity,
         segment: segmentMap[segmentIndex]?.number || 0,
         color: segmentMap[segmentIndex]?.color || "Green"
     };
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(data));
+            try {
+                client.send(JSON.stringify(data));
+            } catch (error) {
+                console.error('Error sending data to client:', error);
+            }
         }
     });
 }
 
+/**
+ * Broadcasts the final result and calculates winnings.
+ * @param {number} segmentIndex
+ */
 function broadcastFinalResult(segmentIndex) {
     const finalSegment = segmentMap[segmentIndex]?.number || "Unknown";
     const finalColor = segmentMap[segmentIndex]?.color || "Unknown";
@@ -61,71 +70,91 @@ function broadcastFinalResult(segmentIndex) {
 
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(finalResult));
-            const bet = bets.get(client);
-            if (bet) {
-                let winnings = 0;
-                if (bet.type === 'number' && bet.value === finalSegment) {
-                    winnings = bet.amount * 35; // Payout for number bet
-                } else if (bet.type === 'color' && bet.value === finalColor) {
-                    winnings = bet.amount * 2; // Payout for color bet
-                } else if (bet.type === 'even-odd' && bet.value === (finalSegment % 2 === 0 ? 'even' : 'odd')) {
-                    winnings = bet.amount * 2; // Payout for even/odd bet
-                } else {
-                    winnings = -bet.amount; // Loss
+            try {
+                client.send(JSON.stringify(finalResult));
+                const bet = bets.get(client);
+                if (bet) {
+                    let winnings = 0;
+                    if (bet.type === 'number' && bet.value === finalSegment) {
+                        winnings = bet.amount * 35; // Payout for number bet
+                    } else if (bet.type === 'color' && bet.value === finalColor) {
+                        winnings = bet.amount * 2; // Payout for color bet
+                    } else if (bet.type === 'even-odd' && bet.value === (finalSegment % 2 === 0 ? 'even' : 'odd')) {
+                        winnings = bet.amount * 2; // Payout for even/odd bet
+                    } else {
+                        winnings = -bet.amount; // Loss
+                    }
+                    client.send(JSON.stringify({
+                        message: 'Bet result',
+                        bet,
+                        winnings
+                    }));
                 }
-                client.send(JSON.stringify({
-                    message: 'Bet result',
-                    bet,
-                    winnings
-                }));
-                bets.delete(client);
+            } catch (error) {
+                console.error('Error sending final result to client:', error);
             }
         }
     });
 
-    simulationInProgress = false;
+    // Clear bets after processing
+    bets.clear();
 }
 
-function randomIntFromInterval(min, max) { // min and max included 
+/**
+ * Generates a random integer between a range.
+ * @param {number} min 
+ * @param {number} max 
+ * @returns {number}
+ */
+function randomIntFromInterval(min, max) {
     return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
-const roulette = new Roulette({ friction: 1, initialAngle: 0 });  // Define roulette radius
-const ball = new Ball({ friction: 0.6, initialAngle: 0 });  // Define ball radius and associate with roulette
+const roulette = new Roulette({ friction: 1, initialAngle: 0 });
+const ball = new Ball({ friction: 0.6, initialAngle: 0 });
 
+/**
+ * Starts the roulette and ball simulation.
+ */
 function simulateRouletteWithWebSocket() {
     const deltaTime = 0.02;
-    if (roulette.stopped) roulette.start(randomIntFromInterval(4, 6))
-    if (ball.stopped) ball.start(randomIntFromInterval(15, 25))
-    simulationInProgress = true;
+
+    // Start roulette and ball with random initial speeds
+    if (roulette.stopped) roulette.start(randomIntFromInterval(4, 6));
+    if (ball.stopped) ball.start(randomIntFromInterval(15, 25));
+
+    // Simulation loop
     currentSimulationInterval = setInterval(() => {
         roulette.update(deltaTime);
         ball.update(deltaTime);
         broadcastPositions(roulette, ball);
         if (roulette.stopped && ball.stopped) {
-            broadcastFinalResult(ball.calculateSegment(roulette.angle));
+            broadcastFinalResult(ball.calculateSegment(roulette));
             clearInterval(currentSimulationInterval);
             currentSimulationInterval = null;
         }
     }, deltaTime * 1000);
 }
 
+/**
+ * Resets the simulation and clears bets.
+ */
 function resetSimulation() {
     if (currentSimulationInterval) {
         clearInterval(currentSimulationInterval);
         currentSimulationInterval = null;
     }
-    simulationInProgress = false;
-    bets.clear(); // Clear all bets on reset
+    bets.clear();
 }
 
 wss.on('connection', (ws) => {
     console.log('New client connected');
+
     ws.on('message', (message) => {
         const data = JSON.parse(message);
         if (data.type === 'startSimulation') {
             console.log('Starting roulette simulation');
+            resetSimulation();
             simulateRouletteWithWebSocket();
         } else if (data.type === 'resetSimulation') {
             resetSimulation();
@@ -142,6 +171,10 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         console.log('Client disconnected');
         bets.delete(ws); // Remove bets for the disconnected client
+    });
+
+    ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
     });
 });
 
