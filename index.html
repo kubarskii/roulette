@@ -204,11 +204,9 @@
             ctx.restore();
         }
 
-        function drawBall(ballAngleRelativeToTable, ballAngleRelativeToRoulette) {
-            // Calculate the ball's position relative to the table and roulette
-            const relativeBallAngle = ballAngleRelativeToTable; // Ball's actual position on the table
-            const x = centerX + wheelRadius * Math.cos(relativeBallAngle);
-            const y = centerY + wheelRadius * Math.sin(relativeBallAngle);
+        function drawBall(angle) {
+            const x = centerX + wheelRadius * Math.cos(angle);
+            const y = centerY + wheelRadius * Math.sin(angle);
             ctx.beginPath();
             ctx.arc(x, y, ballRadius, 0, 2 * Math.PI, false);
             ctx.fillStyle = '#ecf0f1';
@@ -302,7 +300,7 @@
                 showNotification(resultText, data.winnings >= 0 ? '#27ae60' : '#e74c3c');
             } else {
                 drawWheel(data.rouletteAngle);  // Use the roulette angle directly from backend
-                drawBall(data.ballAngleRelativeToTable, data.ballAngleRelativeToRoulette);  // Use ball angles directly from backend
+                drawBall(data.angle);  // Use ball angles directly from backend
                 document.getElementById('segmentDisplay').textContent = `Segment: ${data.segment} (${data.color})`;
             }
         };
